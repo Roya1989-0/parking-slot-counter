@@ -1,1 +1,106 @@
 git push -u origin main
+import cv2
+import json
+import numpy as np
+
+# ---------- تنظیمات ----------
+IMAGE_PATH = "data/parking_lot.jpg"
+SLOTS_FILE = "parking_slots.json"
+
+# آستانه‌ای برای تشخیص پر/خالی بودن (بعداً با آزمون و خطا تنظیم کن)
+EDGE_DENSITY_THRESHOLD = 0.02  # یعنی 2 درصد پیکسل‌ها لبه باشند
+
+def load_parking_slots(json_path):
+    with open(json_path, "r") as f:
+        slots = json.load(f)
+    return slots
+
+def analyze_slot(roi):
+    """
+    تحلیل یک جای پارک (ROI = Region of Interest)
+    خروجی: True اگر اشغال، False اگر خالی
+    """
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    edges = cv2.Canny(blur, 50, 150)
+
+    # نسبت پیکسل‌های غیر صفر به کل پیکسل‌ها
+    non_zero = cv2.countNonZero(edges)
+    total = edges.shape[0] * edges.shape[1]
+    edge_density = non_zero / total
+
+    # برای دیباگ، می‌توانی این را چاپ کنی:
+    # print(edge_density)
+
+    return edge_density > EDGE_DENSITY_THRESHOLD
+
+def main():
+    # تصویر را بخوان
+    image = cv2.imread(IMAGE_PATH)
+    if image is None:
+        print("Error: تصویر پیدا نشد. مسیر IMAGE_PATH را چک کن.")
+        return
+
+    original = image.copy()
+
+    # جای پارک‌ها را بخوان
+    slots = load_parking_slots(SLOTS_FILE)
+
+    occupied_count = 0
+    free_count = 0
+
+    for slot in slots:
+        x, y, w, h = slot["x"], slot["y"], slot["w"], slot["h"]
+        slot_id = slot.get("id", "?")
+
+        roi = original[y:y+h, x:x+w]
+
+        is_occupied = analyze_slot(roi)
+
+        if is_occupied:
+            color = (0, 0, 255)   # قرمز = پر
+            status_text = "OCC"
+            occupied_count += 1
+        else:
+            color = (0, 255, 0)   # سبز = خالی
+            status_text = "FREE"
+            free_count += 1
+
+        # رسم مستطیل دور جای پارک
+        cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
+
+        # نوشتن وضعیت روی تصویر
+        cv2.putText(
+            image,
+            f"{slot_id}:{status_text}",
+            (x, y - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
+    # نمایش مجموع
+    summary_text = f"Free: {free_count} | Occupied: {occupied_count} | Total: {len(slots)}"
+    cv2.rectangle(image, (10, 10), (400, 40), (0, 0, 0), -1)
+    cv2.putText(
+        image,
+        summary_text,
+        (20, 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
+
+    # نمایش تصویر
+    cv2.imshow("Parking Counter", image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
